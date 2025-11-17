@@ -271,43 +271,48 @@ jobs:
           curl -LSs https://raw.githubusercontent.com/vc-teahouse/Baseband-guard/main/setup.sh | bash
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/lockdown/lockdown,baseband_guard/ } }' ./security/Kconfig
           
-      - name: ⚙️ Set SuKiSU Ultra (设置SuKiSU Ultra)
+      - name: ⚙️ Set MKSU (设置MKSU)
         run: |
           set -e
           cd kernel_workspace/kernel_platform
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" -o setup.sh
-          bash setup.sh susfs-main
-          cd KernelSU
-          KSU_VERSION=$(expr "$(git rev-list --count main)" + 37185 2>/dev/null || echo 114514)
+          echo "正在配置 MKSU (5ec1cff/KernelSU)..."
+          curl -LSs "https://raw.githubusercontent.com/5ec1cff/KernelSU/refs/heads/main/kernel/setup.sh" | bash -s main
+          cd ./KernelSU
+          KSU_VERSION=$(expr $(curl -sI "https://api.github.com/repos/5ec1cff/KernelSU/commits?sha=main&per_page=1" | grep -i "link:" | sed -n 's/.*page=\([0-9]*\)>; rel="last".*/\1/p') "+" 20000)
           echo "KSUVER=$KSU_VERSION" >> "$GITHUB_ENV"
-          cp "${GITHUB_WORKSPACE}/.github/workflows/Bin/setup.bin" ./
-          chmod +x setup.bin
-          if [ ! -f "kernel/Makefile" ]; then
-            echo "::error ::kernel/Makefile"
-            ls -la
-            exit 1
-          fi
-          ./setup.bin
+          sed -i "s/DKSU_VERSION=16/DKSU_VERSION=${KSU_VERSION}/" kernel/Makefile
 
             
       - name: 🔧 Set up SUSFS (配置 SUSFS)
         run: |
           cd kernel_workspace
           git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android15-6.6
-          git clone https://github.com/SukiSU-Ultra/SukiSU_patch.git
+          git clone https://github.com/ShirkNeko/SukiSU_patch.git
           cd kernel_platform
-          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android15-6.6.patch common/
-          cp ../susfs4ksu/kernel_patches/fs/* common/fs/
-          cp ../susfs4ksu/kernel_patches/include/linux/* common/include/linux/
+          cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU/
+          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android15-6.6.patch ./common/
+          cp ../susfs4ksu/kernel_patches/fs/* ./common/fs/
+          cp ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
+          cp ../SukiSU_patch/69_hide_stuff.patch ./common/
+
+          cd ./KernelSU
+          sed -i 's/@@ -13,6 +13,10 @@/@@ -13,7 +13,11 @@/' 10_enable_susfs_for_ksu.patch
+          sed -i '/ #include <linux\/uaccess\.h>/ { N; s| #include <linux/uaccess\.h>\n #include <linux/version\.h>|&\n #include <linux/pid.h>| }' 10_enable_susfs_for_ksu.patch
+          patch -p1 < 10_enable_susfs_for_ksu.patch || true
+          wget https://github.com/cctv18/oppo_oplus_realme_sm8650/raw/refs/heads/main/other_patch/fix_umount.patch
+          patch -p1 < fix_umount.patch || true
+
+          cd ../common
+          patch -p1 < 50_add_susfs_in_gki-android15-6.6.patch || true
+          patch -p1 -N -F 3 < 69_hide_stuff.patch || true
+          
+
           if [ "$DEVICES_NAME" = "oneplus_ace5_ultra" ] \
             || [ "$DEVICES_NAME" = "realme_GT7" ] \
             || [ "$DEVICES_NAME" = "realme_GT7pro" ] \
             || [ "$DEVICES_NAME" = "realme_GT7pro_Speed" ]; then
-            sed -i 's/^\(SUBLEVEL[[:space:]]*=[[:space:]]*\).*/\166/' common/Makefile
+            sed -i 's/^\(SUBLEVEL[[:space:]]*=[[:space:]]*\).*/\166/' ./Makefile
           fi
-          ( cd common && patch -p1 < 50_add_susfs_in_gki-android15-6.6.patch ) || true
-
-
 
           
       - name: 🔧 Set gki_defconfig (设置编译配置) 
@@ -428,5 +433,5 @@ jobs:
       - name: 📤 Upload AnyKernel3 (上传 Anykernel3)
         uses: actions/upload-artifact@v4
         with:
-         name: AK3_${{ env.KSUVER }}_${{ env.DEVICES_NAME }}_SuKiSU
+         name: AK3_${{ env.KSUVER }}_${{ env.DEVICES_NAME }}_MKSU
          path: ./AnyKernel3/*
